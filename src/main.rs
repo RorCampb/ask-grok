@@ -1,24 +1,12 @@
 mod request;
 
 use request::{Body, Data};
-use serde_json;
 use reqwest::Client;
-use reqwest_eventsource::{EventSource, Event};
+use reqwest_eventsource::Event;
+use serde_json;
 use std::env;
 use futures_util::StreamExt;
 
-
-
-
-fn ask_grok(client: &Client, api_key: &str, request: &Body) -> EventSource {
-    let grok_response = client
-        .post("https://api.x.ai/v1/chat/completions")
-        .bearer_auth(api_key)
-        .header("Content-Type", "application/json")
-        .json(request);
-
-    EventSource::new(grok_response).expect("Failed to start events...")
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -46,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
         request_body.add_message("user", grok_input.trim().to_string());
         
 
-        let mut es = ask_grok(&client, &api_key, &request_body);
+        let mut es = request_body.send(&client, &api_key);
         
         while let Some(event) = es.next().await {
             match event {
