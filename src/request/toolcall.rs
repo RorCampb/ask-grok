@@ -1,19 +1,37 @@
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Serialize, Deserialize)]
+
+
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ToolResponse {
+    pub id: String,
+    pub function: ToolResult,
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ToolResult {
+    pub name: String,
+    pub arguments: String,
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Function {
+    pub r#type: String,
+    pub function: ToolCall,
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ToolCall {
     pub name: String,
     pub description: String,
     pub parameters: Parameters,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Parameters {
     pub r#type: String,
     pub properties: HashMap<String, Args>,
     pub required: Vec<String>,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Args {
     pub r#type: String,
     pub description: String,
@@ -22,7 +40,6 @@ pub struct Args {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
 }
-
 
 
 impl ToolCall {
@@ -44,7 +61,7 @@ impl Parameters {
         }
     }
 
-    pub fn add_property(mut self, name: impl Into<String>, args: Args, required: bool) -> Self {
+    pub fn add_property(&mut self, name: impl Into<String>, args: Args, required: bool) -> &mut Self {
         let key = name.into();
         if required {
             self.required.push(key.clone());

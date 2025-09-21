@@ -1,24 +1,26 @@
-mod toolcall;
+pub mod toolcall;
 
 
-use toolcall::ToolCall;
+use toolcall::{ToolCall, ToolResponse, Function};
 use serde::{Serialize, Deserialize};
 use reqwest::Client;
 use reqwest_eventsource::{EventSource, Event};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct Body {
     model: String,
     messages: Vec<Messages>,
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<ToolCall>>,
+    tools: Option<Vec<Function>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Messages {
-    role: String,
-    content: String, 
+    pub role: String,
+    pub content: String, 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolResponse>>
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,15 +35,17 @@ pub struct Data {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Delta {
-    pub role: String,
+    pub role: Option<String>,
     pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Choices {
     pub index: u32,
-    pub delta: Delta,
+    pub delta: Option<Delta>,
+    pub message: Option<Messages>
 }
 
 
@@ -58,12 +62,17 @@ impl Body {
     pub fn add_message(&mut self, role: impl Into<String>, content: impl Into<String>) {
         self.messages.push(Messages {
             role: role.into(),
-            content: content.into()
+            content: content.into(),
+            tool_calls: None,
         });
     }
 
-    pub fn tools(mut self, tools: impl IntoIterator<Item = ToolCall>) -> Self {
-        self.tools = Some(tools.into_iter().collect());
+    pub fn tools(&mut self, tools: impl IntoIterator<Item = ToolCall>) -> &mut Self {
+        let functions = tools.into_iter().map(|tool_call| Function {
+            r#type: "function".into(),
+            function: tool_call,
+        });
+        self.tools = Some(functions.collect());
         self
     }
     
@@ -77,19 +86,35 @@ impl Body {
         EventSource::new(grok_response).expect("Failed to start events...")
     }
 
-    pub async fn run_tool(&self, client: &Client, api_key: &str) -> Result<Data, reqwest::Error> {
+    pub async fn run_tool(&self, client: &Client, api_key: &str) -> Result<Vec<ToolResponse>, reqwest::Error> {
+        let mut body = self.clone();
+        body.stream = false;
+
         let grok_response = client
             .post("https://api.x.ai/v1/chat/completions")
             .bearer_auth(api_key)
             .header("Content-Type", "application/json")
-            .json(&self)
+            .json(&body)
             .send()
             .await?;
-        let parsed: Data = grok_response.json().await?
-        let parsed: Data = serde_json::from_str(&grok_response_body).expect("Failed to read tool response body");
-
-        if let Some(tool_call) = parsed.choices.tool_calls
+        let raw = grok_response.text().await?;
+        println!("Raw TOOL Response: {}", raw);
+        let parsed: Data = serde_json::from_str(&raw).expect("Failed to parse tool calls");
         
-        Ok(parsed)
+        let tool_calls: Vec<ToolResponse> = parsed
+            .choices
+            .get(0)
+            .and_then(|c| c.message.as_ref())
+            .and_then(|m| m.tool_calls.clone())
+            .unwrap_or_default();
+        if tool_calls.is_empty() {
+            println!("No tool calls found");
+        }
+        else {
+            println!("ToolCall Result: {:?}", tool_calls);
+        }
+        
+        Ok(tool_calls)
+
     }
 }
